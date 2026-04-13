@@ -77,9 +77,20 @@
 #
 
 import sys
-import array
+import itertools
+from concurrent.futures import ProcessPoolExecutor
 import openbabel
 import log as Log
+
+
+def _parse_reaxff_bond_line(line, static_cutoff):
+	words = line.split()
+	ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
+	BP = [int(words[i]) for i in range(3, 3+NB)]
+	BO = [float(words[i]) for i in range(4+NB, 4+2*NB)]
+	bonds = [[BO[i], [ID, BP[i]]] for i in range(NB) if BO[i] > static_cutoff and ID < BP[i]]
+	Q = float(words[6+2*NB])
+	return ID, TYPE, Q, bonds
 
 ## @class	Node
 ## @brief	object to store basic atom information and bond /
@@ -146,7 +157,7 @@ class Processing:
 	## @version	2014/05/31:
 	#		initialization of parameters and variables
 	#
-	def __init__(self, Processing=None, Reader=None, Identify={}, Start=0, Storage=0, Static=0):
+	def __init__(self, Processing=None, Reader=None, Identify={}, Start=0, Storage=0, Static=0, Workers=1):
 		openbabel.obErrorLog.SetOutputLevel(0)
 		self.conv = openbabel.OBConversion()
 		if Processing is None:
@@ -163,6 +174,8 @@ class Processing:
 			self.start = Start
 			self.static = Static
 			self.storage = Storage
+			self.workers = max(1, int(Workers))
+			self._parallel_warned = False
 
 
 			self.timestep = 0
@@ -181,6 +194,8 @@ class Processing:
 			self.start = Start
 			self.static = Processing.static
 			self.storage = Processing.storage
+			self.workers = Processing.workers
+			self._parallel_warned = Processing._parallel_warned
 
 			openbabel.obErrorLog.SetOutputLevel(0)
 			self.conv = openbabel.OBConversion()
@@ -390,6 +405,8 @@ class Processing:
 		molecules = []
 		bonds = []
 		# . set bonds, atoms.ID .Type .Val
+		for ID, TYPE, Q, parsed_bonds in self._parse_step_lines(self.step[7:-2], self.static):
+			bonds.extend(parsed_bonds)
 		for line in self.step[7:-2]:
 			words = line.split()
 			ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
@@ -408,7 +425,7 @@ class Processing:
 				Q = Q,
 				Bonds = {},
 				Mol = -1)
-			except: self.log.printIssue(Text='missing identify for '+words[1]+'. The code does not know how to treat this/these atoms. Please restart the program and supply all required identifiers as follows:\n\n-i <element ID in ReaxFF>:<atomic number of element>', Fatal=True)
+			except: self.log.printIssue(Text='missing identify for '+repr(TYPE)+'. The code does not know how to treat this/these atoms. Please restart the program and supply all required identifiers as follows:\n\n-i <element ID in ReaxFF>:<atomic number of element>', Fatal=True)
 		bonds.sort(reverse=True)
 
 		# . strip bonds from transitionals and set atom.Bonds
@@ -481,16 +498,18 @@ class Processing:
 	#		'dumpGenerator'.
 	#
 	def bondGenerator(self, Reader, Read=10000):
-		data = array.array('c', '')
+		data = ''
 		done = False
 		while not done:
-			while data.tostring().count('Timestep') < 2 and not done:
-				try: data.fromfile(Reader, Read)
-				except: done = True
-			steps = data.tostring().split('# Timestep ')
+			while data.count('# Timestep ') < 2 and not done:
+				chunk = Reader.read(Read)
+				if chunk: data += chunk
+				else: done = True
+			steps = data.split('# Timestep ')
 			if not done:
-				data  = array.array('c', steps[-1])
+				data = steps[-1]
 				del steps[-1]
+			else: data = ''
 			for step in steps: yield step.split('\n')
 
 	## @brief	create step generator object for ReaxFF dump
@@ -507,17 +526,31 @@ class Processing:
 	#		file, step by step.
 	#
 	def dumpGenerator(self, Reader, Read=10000):
-		data = array.array('c', '')
+		data = ''
 		done = False
 		while not done:
-			while data.tostring().count('ITEM: TIMESTEP') < 2 and not done:
-				try: data.fromfile(Reader, Read)
-				except: done = True
-			steps = data.tostring().split('ITEM: TIMESTEP\n')
+			while data.count('ITEM: TIMESTEP\n') < 2 and not done:
+				chunk = Reader.read(Read)
+				if chunk: data += chunk
+				else: done = True
+			steps = data.split('ITEM: TIMESTEP\n')
 			if not done:
-				data = array.array('c', steps[-1])
+				data = steps[-1]
 				del steps[-1]
+			else: data = ''
 			for step in steps: yield step.split('\n')
+
+	def _parse_step_lines(self, lines, static_cutoff):
+		if self.workers <= 1 or len(lines) < 2000:
+			return [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
+		try:
+			with ProcessPoolExecutor(max_workers=self.workers) as pool:
+				return list(pool.map(_parse_reaxff_bond_line, lines, itertools.repeat(static_cutoff), chunksize=256))
+		except Exception as err:
+			if not self._parallel_warned:
+				self.log.printIssue(Text='parallel parsing failed ('+repr(err)+'). Falling back to serial parsing.', Fatal=False)
+				self._parallel_warned = True
+			return [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
 
 	## @brief	extracts bond information given by a timestep
 	#		read from a Bond Order file
@@ -555,6 +588,7 @@ class Processing:
 		LB = len(Bond)
 		for i in range(LB): Bond[i] = [0, []]
 
+		for ID, TYPE, Q, step in self._parse_step_lines(lines, Static):
 		for line in lines:
 			words = line.split()
 			ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
@@ -566,7 +600,6 @@ class Processing:
 					if idx < LB: Bond[idx] = bond
 					else: Bond.append(bond)
 					idx += 1
-			Q = float(words[6+2*NB])
 			self.atom[ID].q = Q
 		Bond.sort(reverse=True)
 		return time, Bond
@@ -1042,7 +1075,7 @@ if __name__ == '__main__':
 
 	###	HEADER
 	#
-	text = ['<source file> [<work file>] [-start <start time>] [-mem <memory in bytes>] [-cut <satic bond order cutoff>] [-n <number of steps>] [-i <element ID in ReaxFF>:<atomic number of element>] [-all] [-norec <recsteps>] [-skip <steps>]',
+	text = ['<source file> [<work file>] [-start <start time>] [-mem <memory in bytes>] [-cut <satic bond order cutoff>] [-n <number of steps>] [-i <element ID in ReaxFF>:<atomic number of element>] [-all] [-norec <recsteps>] [-skip <steps>] [-j <workers>]',
 		'options (for latest <source file>):',
 		'-start: timestep to start reading at, except the latest timestep in a <work file> exceeds the <start time> (default=0)',
 		'-mem: bytes of memory available for reading from the bond order file (default=10000)',
@@ -1051,7 +1084,8 @@ if __name__ == '__main__':
 		'-i: define element identifier (without identifiers the code can not process data). Note: each element has to be given in a separte -i option (e.g. -i 1:6 -i 2:1, for ID 1 being carbon and ID 2 being hydrogen)',
 		'-all: remove <source file> binding of element identifiers. Each identifier given in the command line is copied to all bond order files',
 		'-norec: filter-period for fast back- and forth reactions. Note: For very reactive systems, recrossing events and "normal" fast back- and forth reactions can occur on the same timescale!',
-		'-skip: analyzse only each <steps>th entry of the connectivity file']
+		'-skip: analyzse only each <steps>th entry of the connectivity file',
+		'-j: number of worker processes used for per-frame bond-line parsing (default=1 / serial)']
 	log.printHead(Title='ChemTraYzer - ReaxFF Data Processing', Version='2017-04-07', Author='Malte Doentgen, LTT RWTH Aachen University', Email='chemtrayzer@ltt.rwth-aachen.de', Text='\n\n'.join(text))
 
 	###	INPUT
@@ -1083,6 +1117,7 @@ if __name__ == '__main__':
 	recrossing = True
 	recsteps = 0
 	skip = 1
+	workers = 1
 	i = 1
 	while i < len(argv):
 		if argv[i].lower() == '-start' and filename:
@@ -1108,18 +1143,23 @@ if __name__ == '__main__':
 		elif argv[i].lower() == '-norec':
 			recrossing = False
 			try: recsteps = int(argv[i+1]); i += 1
-			except: log.pintIssue(Text='-norec: option expected integer, got string/nothing and will use default=0 / no filter', Fatal=False)
+			except: log.printIssue(Text='-norec: option expected integer, got string/nothing and will use default=0 / no filter', Fatal=False)
 		elif argv[i].lower() == '-skip':
 			try: skip = int(argv[i+1]); i += 1
 			except: log.printIssue(Text='-skip: option expected integer, got string/nothing and will use default=1', Fatal=False)
+		elif argv[i].lower() == '-j':
+			try: workers = max(1, int(argv[i+1])); i += 1
+			except: log.printIssue(Text='-j: option expected integer, got string/nothing and will use default=1', Fatal=False); workers = 1
 		else:
-			try: line = file(argv[i], 'r').readline()
+			try:
+				with open(argv[i], 'r') as handle:
+					line = handle.readline()
 			except: log.printIssue(Text='attempt to read from '+argv[i]+' failed. Please check whether file is broken or does not exist. File will be ignored ...', Fatal=False); line = ''
 			if 'Timestep' in line: filename.append(argv[i])
 			elif 'WORK' in line: work[line.split()[1]] = argv[i]
 		i += 1
 	if len(filename) > len(set(filename)):
-		filename = set(filename)
+		filename = list(set(filename))
 		log.printIssue(Text='redundant filenames found, condensing to unique set of files', Fatal=False)
 
 	if id_all:
@@ -1203,14 +1243,15 @@ if __name__ == '__main__':
 		if f not in work: worktime[f] = start[f]
 		if n[f] <= 0: run = 'all'
 		else: run = repr(n[f])
-		log.printBody(Text=f+' reading '+run+' steps, staring at timestep '+repr(worktime[f])+', using '+repr(storage[f])+' bytes memory, a static cutoff of '+repr(static[f])+', considering '+repr(recsteps)+' steps for recrossing and reading each '+repr(skip)+'th step of connectivity.\nIdentifying '+', '.join(repr(key)+': '+repr(identify[f][key]) for key in identify[f]), Indent=1)
+		log.printBody(Text=f+' reading '+run+' steps, staring at timestep '+repr(worktime[f])+', using '+repr(storage[f])+' bytes memory, a static cutoff of '+repr(static[f])+', considering '+repr(recsteps)+' steps for recrossing and reading each '+repr(skip)+'th step of connectivity using '+repr(workers)+' parsing worker(s).\nIdentifying '+', '.join(repr(key)+': '+repr(identify[f][key]) for key in identify[f]), Indent=1)
 		reader = open(f, 'r')
-		proc = Processing(Reader=reader, Identify=identify[f], Start=worktime[f], Storage=storage[f], Static=static[f])
+		proc = Processing(Reader=reader, Identify=identify[f], Start=worktime[f], Storage=storage[f], Static=static[f], Workers=workers)
 		done = False; i = 0
 		if f in work: timestep, tmp = proc.processStep(Recrossing=recrossing)
 		else:
 			work[f] = f+'.reac'
-			file(work[f], 'w').write('WORK '+f+' <temperature> <volume> <timestep>\n')
+			with open(work[f], 'w') as writer:
+				writer.write('WORK '+f+' <temperature> <volume> <timestep>\n')
 		while not done:
 			timestep, tmp = proc.processStep(Recrossing=recrossing, Steps=recsteps, Skip=skip, Close=True)
 			if timestep >= 0:
@@ -1221,7 +1262,8 @@ if __name__ == '__main__':
 					for r in tmp[t]:
 						reac = ','.join(mol[1] for mol in r[0])+':'+','.join(mol[1] for mol in r[1])
 						log.printBody(Text=repr(t)+':'+reac, Indent=2)
-						file(work[f], 'a').write(repr(t)+':'+reac+'\n')
+						with open(work[f], 'a') as writer:
+							writer.write(repr(t)+':'+reac+'\n')
 				if i%save == 0 and i != 0: reaction[timestep].append('')
 				i += 1
 				if n[f] > 0 and i > n[f]: done = True
@@ -1234,6 +1276,6 @@ if __name__ == '__main__':
 					for r in tmp[t]:
 						reac = ','.join(mol[1] for mol in r[0])+':'+','.join(mol[1] for mol in r[1])
 						log.printBody(Text=repr(t)+':'+reac, Indent=2)
-						file(work[f], 'a').write(repr(t)+':'+reac+'\n')
+						with open(work[f], 'a') as writer:
+							writer.write(repr(t)+':'+reac+'\n')
 		reader.close()
-

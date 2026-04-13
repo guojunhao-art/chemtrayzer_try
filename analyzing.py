@@ -955,7 +955,10 @@ if __name__ == "__main__":
 			try: noReacSpec = argv[i+1].split(','); i += 1
 			except: log.printIssue(Text='-extra: option expected string, got nothing and will use default=[]', Fatal=False)
 		else:
-			try: line = file(argv[i], 'r').readline(); work.append(argv[i])
+			try:
+				with open(argv[i], 'r') as handle:
+					line = handle.readline()
+				work.append(argv[i])
 			except: log.printIssue(Text='attempt to read from '+argv[i]+' failed. Please check whether file is broken or does not exist. File will be ignored ...', Fatal=False); line = ''
 		i += 1
 	if len(work) > len(set(work)):
@@ -1026,4 +1029,3 @@ if __name__ == "__main__":
 		anly.writeTexReactions()
 		log.printBody(Text='>>> DONE: mechanism written to '+main+'.gml and reactions written to '+main+'.tex\n', Indent=1)
 	if plot: anly.drawProfile(Plot=plot, Timestep=timestep)
-
