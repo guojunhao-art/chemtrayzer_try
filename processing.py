@@ -197,10 +197,10 @@ class Processing:
 			self.switch = Processing.switch
 
 		self.steps = self.bondGenerator(Reader=Reader, Read=self.storage)
-		self.step = self.steps.next(); self.step = self.steps.next()
+		self.step = next(self.steps); self.step = next(self.steps)
 		fail = False
 		while int(self.step[0]) < Start and not fail:
-			try: self.step = self.steps.next()
+			try: self.step = next(self.steps)
 			except: fail = True
 		if fail: self.log.printIssue(Text='start time exceeds largest timestep. Nothing will be read from this bond order file.', Fatal=False)
 
@@ -298,7 +298,7 @@ class Processing:
 			if not Recrossing: self.reaction = self.filterRecrossing(Reaction=self.reaction, Timestep=self.timestep, Filter=Steps*self.dt_min, Debug=False)
 			self.switch = not self.switch
 		try:
-			for i in xrange(Skip): self.step = self.steps.next()
+			for i in range(Skip): self.step = next(self.steps)
 			tmpReaction = {}
 			if not Recrossing:
 				for t in self.reaction:
@@ -393,9 +393,9 @@ class Processing:
 		for line in self.step[7:-2]:
 			words = line.split()
 			ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
-			BP = [int(words[i]) for i in xrange(3,3+NB)]
-			BO = [float(words[i]) for i in xrange(4+NB,4+2*NB)]
-			for i in xrange(NB):
+			BP = [int(words[i]) for i in range(3,3+NB)]
+			BO = [float(words[i]) for i in range(4+NB,4+2*NB)]
+			for i in range(NB):
 				if BO[i] > self.static and ID < BP[i]:
 					bonds.append([BO[i], [ID, BP[i]]])
 			Q = float(words[6+2*NB])
@@ -432,7 +432,7 @@ class Processing:
 			setMolIDRecursive(id,id-1)
 		
 		# . sort atom ID list in molecules
-		for i in xrange(len(molecules)):
+		for i in range(len(molecules)):
 			molecules[i][0].sort()
 
 		# . set smiles
@@ -553,14 +553,14 @@ class Processing:
 
 		idx = 0
 		LB = len(Bond)
-		for i in xrange(LB): Bond[i] = [0, []]
+		for i in range(LB): Bond[i] = [0, []]
 
 		for line in lines:
 			words = line.split()
 			ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
-			BP = [int(words[i]) for i in xrange(3,3+NB)]
-			BO = [float(words[i]) for i in xrange(4+NB,4+2*NB)]
-			step = [[BO[i], [ID, BP[i]]] for i in xrange(NB) if BO[i] > Static]
+			BP = [int(words[i]) for i in range(3,3+NB)]
+			BO = [float(words[i]) for i in range(4+NB,4+2*NB)]
+			step = [[BO[i], [ID, BP[i]]] for i in range(NB) if BO[i] > Static]
 			for bond in step:
 				if ID < bond[1][1]:
 					if idx < LB: Bond[idx] = bond
@@ -605,10 +605,10 @@ class Processing:
 	def splitBonds(self, Bond, Atom):
 		tsBond = []
 		if Bond:
-			buff = zip(*Bond)
+			buff = list(zip(*Bond))
 			valence = {}; coordination = {}
 			for i in Atom: valence[i] = 0; coordination[i] = 0
-			for i in xrange(len(buff[1])):
+			for i in range(len(buff[1])):
 				b = buff[1][i]
 				if not b: continue
 				if Atom[b[0]].val > valence[b[0]] and Atom[b[1]].val > valence[b[1]] and Atom[b[0]].cor > coordination[b[0]] and Atom[b[1]].cor > coordination[b[1]]:
@@ -619,7 +619,7 @@ class Processing:
 					valence[b[0]] += BO; coordination[b[0]] += 1
 					valence[b[1]] += BO; coordination[b[1]] += 1
 				else: Bond[i] = [0, []]
-			tsBond = [[buff[0][i], buff[1][i]] for i in xrange(len(buff[0])) if Bond[i][0] == 0]
+			tsBond = [[buff[0][i], buff[1][i]] for i in range(len(buff[0])) if Bond[i][0] == 0]
 			Bond.sort(reverse=True)
 		return Bond, tsBond
 
@@ -642,8 +642,8 @@ class Processing:
 	#
 	def reduceBonds(self, Old, New):
 		old = []; new = []
-		if Old: old = zip(*Old)[1]
-		if New: new = zip(*New)[1]
+		if Old: old = list(zip(*Old))[1]
+		if New: new = list(zip(*New))[1]
 		depletion = [i for i in Old if i[1] and i[1] not in new and i[1][::-1] not in new]
 		creation = [i for i in New if i[1] and i[1] not in old and i[1][::-1] not in old]
 		return depletion, creation
@@ -835,7 +835,7 @@ class Processing:
 			if frag != molecule[atom[bond[1][0]].mol][0]:
 				[molecule[atom[bond[1][0]].mol][0].remove(i) for i in frag]
 				if frag: molecule[atom[bond[1][0]].mol][1] = 'changed'
-				for i in xrange(mols):
+				for i in range(mols):
 					if not molecule[i][0]:
 						molecule[i][0] = frag
 						molecule[i][1] = 'changed'
@@ -972,7 +972,7 @@ class Processing:
 
 		idx = times.index(Timestep)
 		irec = 0
-		for i in xrange(len(times)):
+		for i in range(len(times)):
 			#if times[i] <= Timestep-Filter:
 			if times[i] >= Timestep-Filter:
 				irec = i
@@ -985,11 +985,11 @@ class Processing:
 			prod = []
 			for mol in r[1]: prod.append(mol)
 			if Debug:
-				print
-				print '>>> DEBUG: check recorssing filter'
-				print '>>> timestep:', Timestep
-				print '>>> reaction:', r
-				print '>>> initial', prod
+				print()
+				print('>>> DEBUG: check recorssing filter')
+				print('>>> timestep:', Timestep)
+				print('>>> reaction:', r)
+				print('>>> initial', prod)
 			# . loop backward over time
 			i = 0
 			while prod and i < len(revTime):
@@ -1011,14 +1011,14 @@ class Processing:
 							if any(a not in target for a in mol[0]):
 								prod.append(mol)
 								if Debug:
-									print '>>>', reac
+									print('>>>', reac)
 						# . remove products which have been reactants of previous
 						#   reactions
 						for mol in reac[0]:
 							if mol in prod:
 								prod.remove(mol)
 				if Debug:
-					print '>>>', prod
+					print('>>>', prod)
 				i += 1
 			if not prod:
 				for t in tmp:
@@ -1061,7 +1061,7 @@ if __name__ == '__main__':
 		log.printComment(Text=' Use keyboard to type in filenames, identifiers and optional parameters. The <return> button will not cause leaving the input section. Use <strg>+<c> or write "done" to proceed.', onlyBody=False)
 		argv = ['input']; done = False
 		while not done:
-			try: tmp = raw_input('')
+			try: tmp = input('')
 			except: done = True
 			if 'done' in tmp.lower(): done = True
 			else:
