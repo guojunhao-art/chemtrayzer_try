@@ -584,7 +584,18 @@ class Processing:
 	def _parse_step_lines(self, lines, static_cutoff):
 		t0 = time.time()
 		if self.workers <= 1 or len(lines) < 2000:
-			out = [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
+			out = []
+			for line in lines:
+				words = line.split()
+				ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
+				step = []
+				for i in range(NB):
+					bo = float(words[4+NB+i])
+					if bo > static_cutoff:
+						bp = int(words[3+i])
+						if ID < bp: step.append([bo, [ID, bp]])
+				Q = float(words[6+2*NB])
+				out.append((ID, TYPE, Q, step))
 			if self.profile:
 				self.profile_stats['parse_serial_t'] += (time.time() - t0)
 				self.profile_stats['parse_calls'] += 1
@@ -708,17 +719,18 @@ class Processing:
 		tsBond = []
 		if Bond:
 			valence = {}; coordination = {}
-			for i in Atom: valence[i] = 0; coordination[i] = 0
 			for i in range(len(Bond)):
 				bo = Bond[i][0]; b = Bond[i][1]
 				if not b: continue
-				if Atom[b[0]].val > valence[b[0]] and Atom[b[1]].val > valence[b[1]] and Atom[b[0]].cor > coordination[b[0]] and Atom[b[1]].cor > coordination[b[1]]:
+				va = valence.get(b[0], 0.0); vb = valence.get(b[1], 0.0)
+				ca = coordination.get(b[0], 0); cb = coordination.get(b[1], 0)
+				if Atom[b[0]].val > va and Atom[b[1]].val > vb and Atom[b[0]].cor > ca and Atom[b[1]].cor > cb:
 					# . Version 2017/03/29: replaced with below line
 					#if bo < 0.5: BO = 1
 					#else: BO = int(round(buff[0][i]))
 					BO = round(2.0*bo)/2.0
-					valence[b[0]] += BO; coordination[b[0]] += 1
-					valence[b[1]] += BO; coordination[b[1]] += 1
+					valence[b[0]] = va + BO; coordination[b[0]] = ca + 1
+					valence[b[1]] = vb + BO; coordination[b[1]] = cb + 1
 				else:
 					Bond[i] = [0, []]
 					tsBond.append([bo, b])
@@ -743,11 +755,30 @@ class Processing:
 	#		in the new but not the old step).
 	#
 	def reduceBonds(self, Old, New):
-		key = lambda bond: (bond[0], bond[1]) if bond[0] < bond[1] else (bond[1], bond[0])
-		old = set(key(i[1]) for i in Old if i[1])
-		new = set(key(i[1]) for i in New if i[1])
-		depletion = [i for i in Old if i[1] and key(i[1]) not in new]
-		creation = [i for i in New if i[1] and key(i[1]) not in old]
+		old = set()
+		new = set()
+		for i in Old:
+			b = i[1]
+			if b:
+				if b[0] < b[1]: old.add((b[0], b[1]))
+				else: old.add((b[1], b[0]))
+		for i in New:
+			b = i[1]
+			if b:
+				if b[0] < b[1]: new.add((b[0], b[1]))
+				else: new.add((b[1], b[0]))
+		depletion = []
+		for i in Old:
+			b = i[1]
+			if b:
+				k = (b[0], b[1]) if b[0] < b[1] else (b[1], b[0])
+				if k not in new: depletion.append(i)
+		creation = []
+		for i in New:
+			b = i[1]
+			if b:
+				k = (b[0], b[1]) if b[0] < b[1] else (b[1], b[0])
+				if k not in old: creation.append(i)
 		return depletion, creation
 
 	## @brief	increase spin multiplicity of an OBAtom
