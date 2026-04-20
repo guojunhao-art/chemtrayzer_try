@@ -583,18 +583,13 @@ class Processing:
 	def extractBonds(self, Step, Bond=[], Static=0.5):
 		time = int(Step[0])
 		lines = Step[7:-2]
+		parsed_entries = self._parse_step_lines(lines, Static)
 
 		idx = 0
 		LB = len(Bond)
 		for i in range(LB): Bond[i] = [0, []]
 
-		for ID, TYPE, Q, step in self._parse_step_lines(lines, Static):
-		for line in lines:
-			words = line.split()
-			ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
-			BP = [int(words[i]) for i in range(3,3+NB)]
-			BO = [float(words[i]) for i in range(4+NB,4+2*NB)]
-			step = [[BO[i], [ID, BP[i]]] for i in range(NB) if BO[i] > Static]
+		for ID, _, Q, step in parsed_entries:
 			for bond in step:
 				if ID < bond[1][1]:
 					if idx < LB: Bond[idx] = bond
