@@ -95,6 +95,17 @@ def _parse_reaxff_bond_line(line, static_cutoff):
 	Q = float(words[6+2*NB])
 	return ID, TYPE, Q, bonds
 
+
+def _increase_implicit_valence(atom, delta):
+	n = int(round(delta))
+	if n <= 0: return
+	if hasattr(atom, 'SetImplicitValence') and hasattr(atom, 'GetImplicitValence'):
+		atom.SetImplicitValence(atom.GetImplicitValence() + n)
+	elif hasattr(atom, 'IncrementImplicitValence'):
+		for i in range(n): atom.IncrementImplicitValence()
+	elif hasattr(atom, 'SetImplicitHCount') and hasattr(atom, 'GetImplicitHCount'):
+		atom.SetImplicitHCount(atom.GetImplicitHCount() + n)
+
 ## @class	Node
 ## @brief	object to store basic atom information and bond /
 #		molecule information. Contains an openbabel.OBAtom
@@ -809,12 +820,12 @@ class Processing:
 				if hasattr(bond, 'GetBO'): bo = bond.GetBO()
 				else: bo = bond.GetBondOrder()
 				if bo > 1:
-					if hasattr(bond, 'SetBO'): bond.SetBO(1)
-					else: bond.SetBondOrder(1)
-					atom = bond.GetBeginAtom()
-					atom.SetImplicitValence(atom.GetImplicitValence() +(bo-1))
-					btom = bond.GetEndAtom()
-					btom.SetImplicitValence(btom.GetImplicitValence() +(bo-1))
+						if hasattr(bond, 'SetBO'): bond.SetBO(1)
+						else: bond.SetBondOrder(1)
+						atom = bond.GetBeginAtom()
+						_increase_implicit_valence(atom, bo-1)
+						btom = bond.GetEndAtom()
+						_increase_implicit_valence(btom, bo-1)
 			chk.AssignSpinMultiplicity(True)
 			post = self.conv.WriteString(chk).strip().replace('@@','@')
 			if pre != post: out = self.perceiveBondOrders(Molecule=Molecule, Atom=Atom)
