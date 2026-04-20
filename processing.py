@@ -747,11 +747,11 @@ class Processing:
 	#		in the new but not the old step).
 	#
 	def reduceBonds(self, Old, New):
-		old = []; new = []
-		if Old: old = list(zip(*Old))[1]
-		if New: new = list(zip(*New))[1]
-		depletion = [i for i in Old if i[1] and i[1] not in new and i[1][::-1] not in new]
-		creation = [i for i in New if i[1] and i[1] not in old and i[1][::-1] not in old]
+		key = lambda bond: (bond[0], bond[1]) if bond[0] < bond[1] else (bond[1], bond[0])
+		old = set(key(i[1]) for i in Old if i[1])
+		new = set(key(i[1]) for i in New if i[1])
+		depletion = [i for i in Old if i[1] and key(i[1]) not in new]
+		creation = [i for i in New if i[1] and key(i[1]) not in old]
 		return depletion, creation
 
 	## @brief	increase spin multiplicity of an OBAtom
