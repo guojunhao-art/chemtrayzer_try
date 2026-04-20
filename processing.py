@@ -958,7 +958,9 @@ class Processing:
 					[r[1].append(B) for B in reac[1] if B not in r[1]]
 					del reaction[reaction.index(reac)]
 
-		return [[sorted(sorted(reac) for reac in r[0]), sorted(sorted(prod) for prod in r[1])] for r in reaction]
+		normalize = lambda mol: [sorted(mol[0]), mol[1]]
+		order = lambda mol: (tuple(mol[0]), mol[1])
+		return [[sorted([normalize(reac) for reac in r[0]], key=order), sorted([normalize(prod) for prod in r[1]], key=order)] for r in reaction]
 
 	## @brief	filter fast back-and-forth reactions
 	## @param	Reaction	time-resolved list of reactions
