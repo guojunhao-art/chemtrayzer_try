@@ -962,7 +962,7 @@ if __name__ == "__main__":
 			except: log.printIssue(Text='attempt to read from '+argv[i]+' failed. Please check whether file is broken or does not exist. File will be ignored ...', Fatal=False); line = ''
 		i += 1
 	if len(work) > len(set(work)):
-		work = set(work)
+		work = list(set(work))
 		log.printIssue(Text='redundant work files found, condensing to unique set of files', Fatal=False)
 	
 	def readWork(Work):
