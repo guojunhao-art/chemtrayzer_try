@@ -79,7 +79,10 @@
 import sys
 import itertools
 from concurrent.futures import ProcessPoolExecutor
-import openbabel
+try:
+	from openbabel import openbabel
+except ImportError:
+	import openbabel
 import log as Log
 
 
@@ -407,15 +410,6 @@ class Processing:
 		# . set bonds, atoms.ID .Type .Val
 		for ID, TYPE, Q, parsed_bonds in self._parse_step_lines(self.step[7:-2], self.static):
 			bonds.extend(parsed_bonds)
-		for line in self.step[7:-2]:
-			words = line.split()
-			ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
-			BP = [int(words[i]) for i in range(3,3+NB)]
-			BO = [float(words[i]) for i in range(4+NB,4+2*NB)]
-			for i in range(NB):
-				if BO[i] > self.static and ID < BP[i]:
-					bonds.append([BO[i], [ID, BP[i]]])
-			Q = float(words[6+2*NB])
 			molecules.append([[],''])
 			try: atoms[ID] = Node(
 				Id = ID,
@@ -812,9 +806,11 @@ class Processing:
 			# . check if InChI conversion worked properly
 			chk = openbabel.OBMol(frag)
 			for bond in openbabel.OBMolBondIter(chk):
-				bo = bond.GetBO()
+				if hasattr(bond, 'GetBO'): bo = bond.GetBO()
+				else: bo = bond.GetBondOrder()
 				if bo > 1:
-					bond.SetBO(1)
+					if hasattr(bond, 'SetBO'): bond.SetBO(1)
+					else: bond.SetBondOrder(1)
 					atom = bond.GetBeginAtom()
 					atom.SetImplicitValence(atom.GetImplicitValence() +(bo-1))
 					btom = bond.GetEndAtom()

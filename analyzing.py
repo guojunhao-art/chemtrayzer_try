@@ -66,7 +66,10 @@ try: import matplotlib.pyplot as plt
 except ImportError: print('ImportError: matplotlib.pyplot')
 except RuntimeError: print('RuntimeError: Display available?')
 
-import openbabel
+try:
+	from openbabel import openbabel
+except ImportError:
+	import openbabel
 import log as Log
 
 ## @class	Analyzing
