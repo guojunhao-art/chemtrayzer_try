@@ -59,8 +59,8 @@ class Log:
 		self.comment = textwrap.TextWrapper(initial_indent='! ', subsequent_indent='! ', width=Width)
 		self.error = textwrap.TextWrapper(initial_indent='   ', subsequent_indent='   ', width=Width)
 		
-		self.commentLine = '!'+('-').join('' for i in xrange(Width+1))+'!'
-		self.errorLine = ('*').join('' for i in xrange(Width+3))
+		self.commentLine = '!'+('-').join('' for i in range(Width+1))+'!'
+		self.errorLine = ('*').join('' for i in range(Width+3))
 	
 	## @brief	prints standard output to the shell
 	## @parameter	Text		string to be printed
@@ -73,13 +73,13 @@ class Log:
 	#		length plus indenting spaces is 'self.width'.
 	#
 	def printBody(self, Text='', Indent=0):
-		self.body.initial_indent = ' '+(' ').join('' for i in xrange(Indent+1))
+		self.body.initial_indent = ' '+(' ').join('' for i in range(Indent+1))
 		self.body.subsequent_indent = self.body.initial_indent
 		fragments = Text.split('\n')
 		for frag in fragments:
 			if not frag: wrappedText= ['']
 			else: wrappedText = self.body.wrap(frag)
-			print('\n').join(wrappedText)
+			print(('\n').join(wrappedText))
 	
 	## @brief	prints text to the shell surrounded by
 	#		exclamation marks
@@ -100,15 +100,15 @@ class Log:
 	#		(if required).
 	#
 	def printComment(self, Text='', onlyBody=False):
-		if not onlyBody: print self.commentLine
+		if not onlyBody: print(self.commentLine)
 		fragments = Text.split('\n')
 		for frag in fragments:
 			if not frag: wrappedText = ['!']
 			else: wrappedText = self.comment.wrap(frag)
-			for i in xrange(len(wrappedText)):
-				wrappedText[i] += (' ').join('' for i in xrange(self.width+1-len(wrappedText[i])))+' !'
-			print ('\n').join(wrappedText)
-		if not onlyBody: print self.commentLine
+			for i in range(len(wrappedText)):
+				wrappedText[i] += (' ').join('' for i in range(self.width+1-len(wrappedText[i])))+' !'
+			print(('\n').join(wrappedText))
+		if not onlyBody: print(self.commentLine)
 	
 	## @brief	displays software information in the shell
 	## @parameter	Title		name of the software
@@ -130,10 +130,10 @@ class Log:
 	#
 	def printHead(self, Title='', Version='', Author='', Email='', Date='', Text=''):
 		fill = self.width + 1 - (len(Title) + 4)
-		print
-		print time.asctime(time.gmtime(time.time()))+' / UTC'
-		print
-		print '!'+('-').join('' for i in xrange(int(fill/2 +fill%2)))+'  '+Title+'  '+('-').join('' for i in xrange(1+int(fill/2)))+'!'
+		print()
+		print(time.asctime(time.gmtime(time.time()))+' / UTC')
+		print()
+		print('!'+('-').join('' for i in range(int(fill/2 +fill%2)))+'  '+Title+'  '+('-').join('' for i in range(1+int(fill/2)))+'!')
 		self.printComment(Text='', onlyBody=True)
 		if Version: self.printComment(Text='   Version '+Version, onlyBody=True)
 		if Author: self.printComment(Text='   Author  '+Author, onlyBody=True)
@@ -141,8 +141,8 @@ class Log:
 		if Date: self.printComment(Text='   Date    '+Date, onlyBody=True)
 		if Text: self.printComment(Text='\n'+Text, onlyBody=True)
 		else: self.printComment(Text='', onlyBody=True)
-		print self.commentLine
-		print
+		print(self.commentLine)
+		print()
 	
 	## @brief	prints a warning or error and can abort the
 	#		program
@@ -159,15 +159,15 @@ class Log:
 	#		uncontrolled malfunction.
 	#
 	def printIssue(self, Text='', Fatal=False):
-		print self.errorLine
-		if Fatal: print 'ERROR:'
-		else: print 'WARNING:'
+		print(self.errorLine)
+		if Fatal: print('ERROR:')
+		else: print('WARNING:')
 		fragments = Text.split('\n')
 		for frag in fragments:
 			if not frag: wrappedText = ['']
 			else: wrappedText = self.error.wrap(frag)
-			print ('\n').join(wrappedText)
-		if Fatal: print '\nEXIT'
-		print self.errorLine
+			print(('\n').join(wrappedText))
+		if Fatal: print('\nEXIT')
+		print(self.errorLine)
 		if Fatal: sys.exit()
 
