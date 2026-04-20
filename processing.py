@@ -156,6 +156,18 @@ class Node:
 #		be used as an 'operator' again.
 #
 class Processing:
+	def _initProfileStats(self):
+		return {
+			'parse_serial_t': 0.0, 'parse_parallel_t': 0.0, 'parse_calls': 0, 'parse_lines': 0,
+			'step_t': 0.0, 'step_n': 0,
+			'stage_extract_t': 0.0, 'stage_split_t': 0.0, 'stage_reduce_t': 0.0,
+			'stage_update_t': 0.0, 'stage_canonical_t': 0.0, 'stage_reac_t': 0.0,
+			'stage_filter_t': 0.0, 'stage_advance_t': 0.0
+		}
+
+	def _profileAdd(self, Key, Value):
+		if self.profile: self.profile_stats[Key] += Value
+
 	## @brief	Constructor
 	## @param	Processing
 	## @param	Reader
@@ -192,8 +204,13 @@ class Processing:
 			self.workers = max(1, int(Workers))
 			self._parallel_warned = False
 			self.profile = bool(Profile)
-			self.profile_stats = {'parse_serial_t': 0.0, 'parse_parallel_t': 0.0, 'parse_calls': 0, 'parse_lines': 0, 'step_t': 0.0, 'step_n': 0}
-
+			self.profile_stats = self._initProfileStats()
+			self._pool = None
+			if self.workers > 1:
+				try: self._pool = ProcessPoolExecutor(max_workers=self.workers)
+				except Exception as err:
+					self.log.printIssue(Text='parallel pool init failed ('+repr(err)+'). Falling back to serial parsing.', Fatal=False)
+					self.workers = 1
 
 			self.timestep = 0
 			self.dt_min = self.extractTimeResolution(Reader)
@@ -215,6 +232,7 @@ class Processing:
 			self._parallel_warned = Processing._parallel_warned
 			self.profile = Processing.profile
 			self.profile_stats = Processing.profile_stats
+			self._pool = Processing._pool
 
 			openbabel.obErrorLog.SetOutputLevel(0)
 			self.conv = openbabel.OBConversion()
@@ -311,16 +329,18 @@ class Processing:
 	#
 	def processStep(self, Recrossing=True, Steps=1, Skip=1, Close=True):
 		t0 = time.time()
-		self.timestep, self.bond[self.switch] = self.extractBonds(Step=self.step, Bond=self.bond[self.switch], Static=self.static)
-		self.bond[self.switch], tsbond = self.splitBonds(Bond=self.bond[self.switch], Atom=self.atom)
-		self.update = self.reduceBonds(Old=self.bond[not self.switch], New=self.bond[self.switch])
+		t = time.time(); self.timestep, self.bond[self.switch] = self.extractBonds(Step=self.step, Bond=self.bond[self.switch], Static=self.static); self._profileAdd('stage_extract_t', time.time()-t)
+		t = time.time(); self.bond[self.switch], tsbond = self.splitBonds(Bond=self.bond[self.switch], Atom=self.atom); self._profileAdd('stage_split_t', time.time()-t)
+		t = time.time(); self.update = self.reduceBonds(Old=self.bond[not self.switch], New=self.bond[self.switch]); self._profileAdd('stage_reduce_t', time.time()-t)
 		if self.update[0] or self.update[1]:
 			atom = dict(self.atom)
 			molecule = self.molecule
-			self.molecule, self.atom = self.updateSystem(molecule, atom, self.update)
+			t = time.time(); self.molecule, self.atom = self.updateSystem(molecule, atom, self.update); self._profileAdd('stage_update_t', time.time()-t)
+			t = time.time()
 			for mol in self.molecule:
 				if mol[1] == 'changed': mol[1] = self.canonical(mol[0], self.atom)
-			self.reaction[self.timestep] = self.chkReactions([molecule, atom], [self.molecule, self.atom], self.update)
+			self._profileAdd('stage_canonical_t', time.time()-t)
+			t = time.time(); self.reaction[self.timestep] = self.chkReactions([molecule, atom], [self.molecule, self.atom], self.update); self._profileAdd('stage_reac_t', time.time()-t)
 			# . active atoms
 			self.active[self.timestep] = []
 			for b in self.update[0]:
@@ -330,10 +350,13 @@ class Processing:
 				self.active[self.timestep].append(b[1][0])
 				self.active[self.timestep].append(b[1][1])
 			# . recrossing
-			if not Recrossing: self.reaction = self.filterRecrossing(Reaction=self.reaction, Timestep=self.timestep, Filter=Steps*self.dt_min, Debug=False)
+			if not Recrossing:
+				t = time.time(); self.reaction = self.filterRecrossing(Reaction=self.reaction, Timestep=self.timestep, Filter=Steps*self.dt_min, Debug=False); self._profileAdd('stage_filter_t', time.time()-t)
 			self.switch = not self.switch
 		try:
+			t = time.time()
 			for i in range(Skip): self.step = next(self.steps)
+			self._profileAdd('stage_advance_t', time.time()-t)
 			tmpReaction = {}
 			if not Recrossing:
 				for t in self.reaction:
@@ -565,8 +588,7 @@ class Processing:
 				self.profile_stats['parse_lines'] += len(lines)
 			return out
 		try:
-			with ProcessPoolExecutor(max_workers=self.workers) as pool:
-				out = list(pool.map(_parse_reaxff_bond_line, lines, itertools.repeat(static_cutoff), chunksize=256))
+			out = list(self._pool.map(_parse_reaxff_bond_line, lines, itertools.repeat(static_cutoff), chunksize=256))
 			if self.profile:
 				self.profile_stats['parse_parallel_t'] += (time.time() - t0)
 				self.profile_stats['parse_calls'] += 1
@@ -576,6 +598,11 @@ class Processing:
 			if not self._parallel_warned:
 				self.log.printIssue(Text='parallel parsing failed ('+repr(err)+'). Falling back to serial parsing.', Fatal=False)
 				self._parallel_warned = True
+			try:
+				if self._pool is not None: self._pool.shutdown(wait=True, cancel_futures=True)
+			except: pass
+			self._pool = None
+			self.workers = 1
 			out = [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
 			if self.profile:
 				self.profile_stats['parse_serial_t'] += (time.time() - t0)
@@ -594,6 +621,14 @@ class Processing:
 		self.log.printBody(Text='serial parse time: %.6f s' %(self.profile_stats['parse_serial_t']), Indent=1)
 		self.log.printBody(Text='parallel parse time: %.6f s' %(self.profile_stats['parse_parallel_t']), Indent=1)
 		self.log.printBody(Text='total parse time: %.6f s' %(parse_t), Indent=1)
+		self.log.printBody(Text='stage extract/split/reduce: %.6f / %.6f / %.6f s' %(self.profile_stats['stage_extract_t'], self.profile_stats['stage_split_t'], self.profile_stats['stage_reduce_t']), Indent=1)
+		self.log.printBody(Text='stage update/canonical/reaction/filter/advance: %.6f / %.6f / %.6f / %.6f / %.6f s' %(self.profile_stats['stage_update_t'], self.profile_stats['stage_canonical_t'], self.profile_stats['stage_reac_t'], self.profile_stats['stage_filter_t'], self.profile_stats['stage_advance_t']), Indent=1)
+
+	def shutdownPool(self):
+		if self._pool is not None:
+			try: self._pool.shutdown(wait=True, cancel_futures=True)
+			except: pass
+			self._pool = None
 
 	## @brief	extracts bond information given by a timestep
 	#		read from a Bond Order file
@@ -1326,3 +1361,4 @@ if __name__ == '__main__':
 							writer.write(repr(t)+':'+reac+'\n')
 		reader.close()
 		proc.reportProfile(Label='for '+f)
+		proc.shutdownPool()
