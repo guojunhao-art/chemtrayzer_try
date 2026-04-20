@@ -78,6 +78,7 @@
 
 import sys
 import itertools
+import time
 from concurrent.futures import ProcessPoolExecutor
 try:
 	from openbabel import openbabel
@@ -171,7 +172,7 @@ class Processing:
 	## @version	2014/05/31:
 	#		initialization of parameters and variables
 	#
-	def __init__(self, Processing=None, Reader=None, Identify={}, Start=0, Storage=0, Static=0, Workers=1):
+	def __init__(self, Processing=None, Reader=None, Identify={}, Start=0, Storage=0, Static=0, Workers=1, Profile=False):
 		openbabel.obErrorLog.SetOutputLevel(0)
 		self.conv = openbabel.OBConversion()
 		if Processing is None:
@@ -190,6 +191,8 @@ class Processing:
 			self.storage = Storage
 			self.workers = max(1, int(Workers))
 			self._parallel_warned = False
+			self.profile = bool(Profile)
+			self.profile_stats = {'parse_serial_t': 0.0, 'parse_parallel_t': 0.0, 'parse_calls': 0, 'parse_lines': 0, 'step_t': 0.0, 'step_n': 0}
 
 
 			self.timestep = 0
@@ -210,6 +213,8 @@ class Processing:
 			self.storage = Processing.storage
 			self.workers = Processing.workers
 			self._parallel_warned = Processing._parallel_warned
+			self.profile = Processing.profile
+			self.profile_stats = Processing.profile_stats
 
 			openbabel.obErrorLog.SetOutputLevel(0)
 			self.conv = openbabel.OBConversion()
@@ -305,6 +310,7 @@ class Processing:
 	#		close system on demand (default=True)
 	#
 	def processStep(self, Recrossing=True, Steps=1, Skip=1, Close=True):
+		t0 = time.time()
 		self.timestep, self.bond[self.switch] = self.extractBonds(Step=self.step, Bond=self.bond[self.switch], Static=self.static)
 		self.bond[self.switch], tsbond = self.splitBonds(Bond=self.bond[self.switch], Atom=self.atom)
 		self.update = self.reduceBonds(Old=self.bond[not self.switch], New=self.bond[self.switch])
@@ -340,6 +346,10 @@ class Processing:
 		except:
 			if Close: self.closeSystem()
 			return -self.timestep, self.reaction
+		finally:
+			if self.profile:
+				self.profile_stats['step_t'] += (time.time() - t0)
+				self.profile_stats['step_n'] += 1
 
 
 	## @brief	Extracts the time resolution of the simulation.
@@ -546,16 +556,44 @@ class Processing:
 			for step in steps: yield step.split('\n')
 
 	def _parse_step_lines(self, lines, static_cutoff):
+		t0 = time.time()
 		if self.workers <= 1 or len(lines) < 2000:
-			return [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
+			out = [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
+			if self.profile:
+				self.profile_stats['parse_serial_t'] += (time.time() - t0)
+				self.profile_stats['parse_calls'] += 1
+				self.profile_stats['parse_lines'] += len(lines)
+			return out
 		try:
 			with ProcessPoolExecutor(max_workers=self.workers) as pool:
-				return list(pool.map(_parse_reaxff_bond_line, lines, itertools.repeat(static_cutoff), chunksize=256))
+				out = list(pool.map(_parse_reaxff_bond_line, lines, itertools.repeat(static_cutoff), chunksize=256))
+			if self.profile:
+				self.profile_stats['parse_parallel_t'] += (time.time() - t0)
+				self.profile_stats['parse_calls'] += 1
+				self.profile_stats['parse_lines'] += len(lines)
+			return out
 		except Exception as err:
 			if not self._parallel_warned:
 				self.log.printIssue(Text='parallel parsing failed ('+repr(err)+'). Falling back to serial parsing.', Fatal=False)
 				self._parallel_warned = True
-			return [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
+			out = [_parse_reaxff_bond_line(line, static_cutoff) for line in lines]
+			if self.profile:
+				self.profile_stats['parse_serial_t'] += (time.time() - t0)
+				self.profile_stats['parse_calls'] += 1
+				self.profile_stats['parse_lines'] += len(lines)
+			return out
+
+	def reportProfile(self, Label=''):
+		if not self.profile: return
+		parse_t = self.profile_stats['parse_serial_t'] + self.profile_stats['parse_parallel_t']
+		step_n = max(1, self.profile_stats['step_n'])
+		self.log.printComment(Text='Performance profile '+Label, onlyBody=False)
+		self.log.printBody(Text='processStep calls: %d' %(self.profile_stats['step_n']), Indent=1)
+		self.log.printBody(Text='avg processStep time: %.6f s' %(self.profile_stats['step_t']/step_n), Indent=1)
+		self.log.printBody(Text='parse calls: %d; parsed lines: %d' %(self.profile_stats['parse_calls'], self.profile_stats['parse_lines']), Indent=1)
+		self.log.printBody(Text='serial parse time: %.6f s' %(self.profile_stats['parse_serial_t']), Indent=1)
+		self.log.printBody(Text='parallel parse time: %.6f s' %(self.profile_stats['parse_parallel_t']), Indent=1)
+		self.log.printBody(Text='total parse time: %.6f s' %(parse_t), Indent=1)
 
 	## @brief	extracts bond information given by a timestep
 	#		read from a Bond Order file
@@ -1079,7 +1117,7 @@ if __name__ == '__main__':
 
 	###	HEADER
 	#
-	text = ['<source file> [<work file>] [-start <start time>] [-mem <memory in bytes>] [-cut <satic bond order cutoff>] [-n <number of steps>] [-i <element ID in ReaxFF>:<atomic number of element>] [-all] [-norec <recsteps>] [-skip <steps>] [-j <workers>]',
+	text = ['<source file> [<work file>] [-start <start time>] [-mem <memory in bytes>] [-cut <satic bond order cutoff>] [-n <number of steps>] [-i <element ID in ReaxFF>:<atomic number of element>] [-all] [-norec <recsteps>] [-skip <steps>] [-j <workers>] [-profile]',
 		'options (for latest <source file>):',
 		'-start: timestep to start reading at, except the latest timestep in a <work file> exceeds the <start time> (default=0)',
 		'-mem: bytes of memory available for reading from the bond order file (default=10000)',
@@ -1089,7 +1127,8 @@ if __name__ == '__main__':
 		'-all: remove <source file> binding of element identifiers. Each identifier given in the command line is copied to all bond order files',
 		'-norec: filter-period for fast back- and forth reactions. Note: For very reactive systems, recrossing events and "normal" fast back- and forth reactions can occur on the same timescale!',
 		'-skip: analyzse only each <steps>th entry of the connectivity file',
-		'-j: number of worker processes used for per-frame bond-line parsing (default=1 / serial)']
+		'-j: number of worker processes used for per-frame bond-line parsing (default=1 / serial)',
+		'-profile: print runtime profile summary at the end of each processed file']
 	log.printHead(Title='ChemTraYzer - ReaxFF Data Processing', Version='2017-04-07', Author='Malte Doentgen, LTT RWTH Aachen University', Email='chemtrayzer@ltt.rwth-aachen.de', Text='\n\n'.join(text))
 
 	###	INPUT
@@ -1122,6 +1161,7 @@ if __name__ == '__main__':
 	recsteps = 0
 	skip = 1
 	workers = 1
+	profile = False
 	i = 1
 	while i < len(argv):
 		if argv[i].lower() == '-start' and filename:
@@ -1154,6 +1194,8 @@ if __name__ == '__main__':
 		elif argv[i].lower() == '-j':
 			try: workers = max(1, int(argv[i+1])); i += 1
 			except: log.printIssue(Text='-j: option expected integer, got string/nothing and will use default=1', Fatal=False); workers = 1
+		elif argv[i].lower() == '-profile':
+			profile = True
 		else:
 			try:
 				with open(argv[i], 'r') as handle:
@@ -1249,7 +1291,7 @@ if __name__ == '__main__':
 		else: run = repr(n[f])
 		log.printBody(Text=f+' reading '+run+' steps, staring at timestep '+repr(worktime[f])+', using '+repr(storage[f])+' bytes memory, a static cutoff of '+repr(static[f])+', considering '+repr(recsteps)+' steps for recrossing and reading each '+repr(skip)+'th step of connectivity using '+repr(workers)+' parsing worker(s).\nIdentifying '+', '.join(repr(key)+': '+repr(identify[f][key]) for key in identify[f]), Indent=1)
 		reader = open(f, 'r')
-		proc = Processing(Reader=reader, Identify=identify[f], Start=worktime[f], Storage=storage[f], Static=static[f], Workers=workers)
+		proc = Processing(Reader=reader, Identify=identify[f], Start=worktime[f], Storage=storage[f], Static=static[f], Workers=workers, Profile=profile)
 		done = False; i = 0
 		if f in work: timestep, tmp = proc.processStep(Recrossing=recrossing)
 		else:
@@ -1283,3 +1325,4 @@ if __name__ == '__main__':
 						with open(work[f], 'a') as writer:
 							writer.write(repr(t)+':'+reac+'\n')
 		reader.close()
+		proc.reportProfile(Label='for '+f)
