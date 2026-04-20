@@ -90,9 +90,12 @@ import log as Log
 def _parse_reaxff_bond_line(line, static_cutoff):
 	words = line.split()
 	ID, TYPE, NB = int(words[0]), int(words[1]), int(words[2])
-	BP = [int(words[i]) for i in range(3, 3+NB)]
-	BO = [float(words[i]) for i in range(4+NB, 4+2*NB)]
-	bonds = [[BO[i], [ID, BP[i]]] for i in range(NB) if BO[i] > static_cutoff and ID < BP[i]]
+	bonds = []
+	for i in range(NB):
+		bo = float(words[4+NB+i])
+		if bo > static_cutoff:
+			bp = int(words[3+i])
+			if ID < bp: bonds.append([bo, [ID, bp]])
 	Q = float(words[6+2*NB])
 	return ID, TYPE, Q, bonds
 
@@ -665,7 +668,7 @@ class Processing:
 
 		Bond = []
 		for ID, _, Q, step in parsed_entries:
-			Bond += step
+			Bond.extend(step)
 			self.atom[ID].q = Q
 		Bond.sort(reverse=True)
 		return time, Bond
@@ -704,21 +707,21 @@ class Processing:
 	def splitBonds(self, Bond, Atom):
 		tsBond = []
 		if Bond:
-			buff = list(zip(*Bond))
 			valence = {}; coordination = {}
 			for i in Atom: valence[i] = 0; coordination[i] = 0
-			for i in range(len(buff[1])):
-				b = buff[1][i]
+			for i in range(len(Bond)):
+				bo = Bond[i][0]; b = Bond[i][1]
 				if not b: continue
 				if Atom[b[0]].val > valence[b[0]] and Atom[b[1]].val > valence[b[1]] and Atom[b[0]].cor > coordination[b[0]] and Atom[b[1]].cor > coordination[b[1]]:
 					# . Version 2017/03/29: replaced with below line
-					#if buff[0][i] < 0.5: BO = 1
+					#if bo < 0.5: BO = 1
 					#else: BO = int(round(buff[0][i]))
-					BO = round(2.0*buff[0][i])/2.0
+					BO = round(2.0*bo)/2.0
 					valence[b[0]] += BO; coordination[b[0]] += 1
 					valence[b[1]] += BO; coordination[b[1]] += 1
-				else: Bond[i] = [0, []]
-			tsBond = [[buff[0][i], buff[1][i]] for i in range(len(buff[0])) if Bond[i][0] == 0]
+				else:
+					Bond[i] = [0, []]
+					tsBond.append([bo, b])
 			Bond.sort(reverse=True)
 		return Bond, tsBond
 
