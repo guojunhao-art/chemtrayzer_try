@@ -663,16 +663,9 @@ class Processing:
 		lines = Step[7:-2]
 		parsed_entries = self._parse_step_lines(lines, Static)
 
-		idx = 0
-		LB = len(Bond)
-		for i in range(LB): Bond[i] = [0, []]
-
+		Bond = []
 		for ID, _, Q, step in parsed_entries:
-			for bond in step:
-				if ID < bond[1][1]:
-					if idx < LB: Bond[idx] = bond
-					else: Bond.append(bond)
-					idx += 1
+			Bond += step
 			self.atom[ID].q = Q
 		Bond.sort(reverse=True)
 		return time, Bond
