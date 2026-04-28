@@ -61,13 +61,24 @@ import scipy.optimize
 import scipy.special
 
 try: import pygraphviz
-except ImportError: print 'ImportError: pygraphviz'
+except ImportError: print('ImportError: pygraphviz')
 try: import matplotlib.pyplot as plt
-except ImportError: print 'ImportError: matplotlib.pyplot'
-except RuntimeError: print 'RuntimeError: Display available?'
+except ImportError: print('ImportError: matplotlib.pyplot')
+except RuntimeError: print('RuntimeError: Display available?')
 
-import openbabel
+try:
+	from openbabel import openbabel
+except ImportError:
+	import openbabel
 import log as Log
+
+
+def _implicit_h_count(atom):
+	if hasattr(atom, 'ImplicitHydrogenCount'):
+		return atom.ImplicitHydrogenCount()
+	if hasattr(atom, 'GetImplicitHCount'):
+		return atom.GetImplicitHCount()
+	return 0
 
 ## @class	Analyzing
 ## @brief	comprises all functions used to represent the simulation
@@ -173,28 +184,28 @@ class Analyzing:
 		#
 		self.log.printBody(Text='conversion of reaction time history to species concentrations...', Indent=1)
 		self.species = {}
-		for i in xrange(self.ntime):
+		for i in range(self.ntime):
 			time = self.time[i]
-			print '%.02f%%\r'.rjust(12) %(100*float(i)/self.ntime),
+			print('%.02f%%\r'.rjust(12) %(100*float(i)/self.ntime), end=' ')
 			sys.stdout.flush()
 			for r in Reaction[time]:
 				for reac in r[0]:
 					if not reac: continue
 					if reac not in self.species:
-						self.species[reac] = [0 for j in xrange(self.ntime)]
+						self.species[reac] = [0 for j in range(self.ntime)]
 					self.species[reac][i] -= 1
-					for j in xrange(self.ntime):
+					for j in range(self.ntime):
 						t = self.time[j]
 						if t > time: self.species[reac][j] = self.species[reac][i]
 				for prod in r[1]:
 					if not prod: continue
 					if prod not in self.species:
-						self.species[prod] = [0 for j in xrange(self.ntime)]
+						self.species[prod] = [0 for j in range(self.ntime)]
 					self.species[prod][i] += 1
-					for j in xrange(self.ntime):
+					for j in range(self.ntime):
 						t = self.time[j]
 						if t > time: self.species[prod][j] = self.species[prod][i]
-		print '100.00%'.rjust(12)
+		print('100.00%'.rjust(12))
 		self.log.printBody(Text='... species generated', Indent=5)
 	
 	
@@ -203,7 +214,7 @@ class Analyzing:
 		for spec in self.species:
 			iconc = self.species[spec][0]
 			if iconc < 0:
-				for i in xrange(self.ntime): self.species[spec][i] += abs(iconc)
+				for i in range(self.ntime): self.species[spec][i] += abs(iconc)
 		self.log.printBody(Text='... virtual reactions removed', Indent=5)
 		
 		
@@ -219,7 +230,7 @@ class Analyzing:
 			self.natom[spec] = 0
 			for atom in openbabel.OBMolAtomIter(mol):
 				if atom.GetAtomicNum() != 1:
-					self.natom[spec] += 1 + atom.ImplicitHydrogenCount()
+					self.natom[spec] += 1 + _implicit_h_count(atom)
 				else: self.natom[spec] += 1
 		self.log.printBody(Text='... stoichiometric formulas generated and atom number computed', Indent=5)
 		
@@ -227,7 +238,7 @@ class Analyzing:
 		# . check of total atom balance per timestep
 		#
 		total = []
-		for i in xrange(self.ntime):
+		for i in range(self.ntime):
 			total.append(sum(self.natom[spec]*self.species[spec][i] for spec in self.species if self.species[spec][i] > 0))
 		if Reaction and min(total) != max(total):
 			self.log.printIssue(Text='number of atoms vary between '+repr(min(total))+' and '+repr(max(total)), Fatal=False)
@@ -242,7 +253,7 @@ class Analyzing:
 		#
 		self.log.printBody(Text='conversion of reaction time history to reaction concentrations...', Indent=1)
 		self.reaction = {}
-		for i in xrange(self.ntime):
+		for i in range(self.ntime):
 			time = self.time[i]
 			for r in Reaction[time]:
 				if not r[0][0] or not r[1][0]: continue
@@ -254,7 +265,7 @@ class Analyzing:
 					elif backward in self.reaction:
 						self.reaction[backward][i] -= 1
 					else:
-						self.reaction[forward] = [0 for j in xrange(self.ntime)]
+						self.reaction[forward] = [0 for j in range(self.ntime)]
 						self.reaction[forward][i] += 1
 					
 					balance = 0
@@ -268,8 +279,8 @@ class Analyzing:
 		# . inversion of reactions with negative net flux
 		#
 		for reac in list(self.reaction):
-			if sum(self.reaction[reac][i] for i in xrange(self.ntime)) < 0:
-				self.reaction[reac.split(':')[1]+':'+reac.split(':')[0]] = [-self.reaction[reac][i] for i in xrange(self.ntime)]
+			if sum(self.reaction[reac][i] for i in range(self.ntime)) < 0:
+				self.reaction[reac.split(':')[1]+':'+reac.split(':')[0]] = [-self.reaction[reac][i] for i in range(self.ntime)]
 				del self.reaction[reac]
 		self.log.printBody(Text='... negative net flux reactions inverted', Indent=5)
 		self.log.printBody(Text='... reactions done\n', Indent=1)
@@ -280,15 +291,15 @@ class Analyzing:
 		estRateBounds = lambda k, f, N, X: X +scipy.special.gammaincc(N+1, k*f) -scipy.special.gammaincc(N+1, numpy.real(-N*lmbW(lmb=k*f, N=N, k=0)))
 		estNoReacBound = lambda f, X: -numpy.log(1-X)/f
 		#   . unimolecular reactants for additional estimation
-		empty = [0 for i in xrange(self.ntime)]
+		empty = [0 for i in range(self.ntime)]
 		for spec in NoReacSpec:
 			if spec not in self.species: NoReacSpec.remove(spec); continue
 			reac = '%s:' %(spec)
 			if reac not in self.reaction: self.reaction[reac] = list(empty)
 			if spec not in self.species: self.species[spec] = list(empty)
 		#   . bimolecular reactants for additional estimation
-		for i in xrange(len(NoReacSpec)):
-			for j in xrange(len(NoReacSpec)-i):
+		for i in range(len(NoReacSpec)):
+			for j in range(len(NoReacSpec)-i):
 				specA = NoReacSpec[i]
 				specB = NoReacSpec[i:][j]
 				reac = '%s,%s:' %(specA, specB)
@@ -300,13 +311,13 @@ class Analyzing:
 		self.log.printBody(Text='computing rate constants...', Indent=1)
 		self.rate = {}; self.err = {}
 		idx = 1
-		for i in xrange(self.ntime):
+		for i in range(self.ntime):
 			if max(self.time) -self.time[-i-1] > 1E3/Timestep: idx = i; break
 		fc = 10/(6.022*Vol)	# 1/(vol*NA*1E-24) : [molecules/A3] to [mol/cm3]
 		ft = 1E15/Timestep	# 1/fs -> 1/s
 		lng = len(self.reaction); running = 0
 		for reac in sorted(self.reaction):
-			print '%.02f%%\r'.rjust(12) %(100*float(running)/lng),
+			print('%.02f%%\r'.rjust(12) %(100*float(running)/lng), end=' ')
 			sys.stdout.flush()
 			A = reac.split(':')[0].split(','); nA = len(A)-1
 			B = reac.split(':')[1].split(','); nB = len(B)-1
@@ -316,7 +327,7 @@ class Analyzing:
 			if '' not in B: self.rate[labelB] = [0.0, 0]; self.err[labelB] = [0.0, 0.0]
 			intA = 0.0; pos = 0
 			intB = 0.0; neg = 0
-			for i in xrange(self.ntime-1):
+			for i in range(self.ntime-1):
 				# . concentration correction
 				corrA = {spec: A.count(spec)-1 for spec in A}
 				corrB = {spec: B.count(spec)-1 for spec in B}
@@ -366,7 +377,7 @@ class Analyzing:
 				self.err[labelB] = [klo, kup]
 				self.rate[labelB][0] *= (ft/(fc**nB))
 			running += 1
-		print '100.00%'.rjust(12)
+		print('100.00%'.rjust(12))
 		self.species.pop('', None)
 		self.log.printBody(Text='... rate constants done\n', Indent=1)
 		
@@ -451,7 +462,7 @@ class Analyzing:
 		#
 		for spec in species:
 			time = [float(t)*Timestep/1000000 for t in self.time]
-			conc = [self.species[spec][i] for i in xrange(self.ntime)]
+			conc = [self.species[spec][i] for i in range(self.ntime)]
 			for t in list(time[:-2]):
 				idx = len(time) - 1 - time[::-1].index(t)
 				time.insert(idx+1,time[idx+1])
@@ -459,8 +470,8 @@ class Analyzing:
 			if i%nsub != 0: ax.append(plt.subplot2grid((nsub,msub),(i%nsub,i//nsub),sharex=ax[i-i%nsub],colspan=1,rowspan=1))
 			else:
 				ax.append(plt.subplot2grid((nsub,msub),(i%nsub,i//nsub),colspan=1,rowspan=1))
-				[plt.setp(ax[j].get_xticklabels(), visible=False) for j in xrange(i-nsub,i-1) if i > 0]
-			ax[-1].set_yticks(range(0,int(max(conc))+2,int((max(conc)-min(conc))*float(nsub)*0.1)+1))
+				[plt.setp(ax[j].get_xticklabels(), visible=False) for j in range(i-nsub,i-1) if i > 0]
+			ax[-1].set_yticks(list(range(0,int(max(conc))+2,int((max(conc)-min(conc))*float(nsub)*0.1)+1)))
 			ax[-1].set_ylim(0,max(conc)+1)
 			ax[-1].set_title('S'+repr(self.index[spec])+': '+self.formula[spec])
 			ax[-1].plot(time, conc, color=color[i%nsub])
@@ -472,7 +483,7 @@ class Analyzing:
 		#
 		for reac in reaction:
 			time = [float(t)*Timestep/1000000 for t in sorted(self.reaction[reac])]
-			conc = [self.reaction[reac][i] for i in xrange(self.ntime)]
+			conc = [self.reaction[reac][i] for i in range(self.ntime)]
 			for t in list(time[:-2]):
 				idx = len(time) - 1 - time[::-1].index(t)
 				time.insert(idx+1,time[idx+1])
@@ -480,10 +491,10 @@ class Analyzing:
 			if i%nsub != 0: ax.append(plt.subplot2grid((nsub,msub),(i%nsub,i//nsub),sharex=ax[i-i%nsub],colspan=1,rowspan=1))
 			else:
 				ax.append(plt.subplot2grid((nsub,msub),(i%nsub,i//nsub),colspan=1,rowspan=1))
-				[plt.setp(ax[j].get_xticklabels(), visible=False) for j in xrange(i-nsub,i-1) if i > 0]
+				[plt.setp(ax[j].get_xticklabels(), visible=False) for j in range(i-nsub,i-1) if i > 0]
 			reactants = ' + '.join(self.formula[r] for r in reac.split(':')[0].split(','))
 			products = ' + '.join(self.formula[p] for p in reac.split(':')[1].split(','))
-			ax[-1].set_yticks(range(0,max(conc)+2,int((max(conc)-min(conc))*float(nsub)*0.1)+1))
+			ax[-1].set_yticks(list(range(0,max(conc)+2,int((max(conc)-min(conc))*float(nsub)*0.1)+1)))
 			ax[-1].set_ylim(0,max(conc)+1)
 			ax[-1].set_title('R'+repr(self.index[reac])+': '+reactants+' -> '+products)
 			ax[-1].plot(time, conc, color=color[i%nsub])
@@ -493,17 +504,17 @@ class Analyzing:
 		
 		# . setup of shared x-axis
 		#
-		for j in xrange(len(ax)):
+		for j in range(len(ax)):
 			ax[j].set_xticks(numpy.arange(0, round(max(time),2)+0.5, round((max(time)-min(time))*float(msub)*0.05,2)))
 			ax[j].set_xlim(min(time), max(time)+0.1)
 			plt.setp(ax[j].xaxis.get_majorticklabels(), rotation=90)
 			if j%nsub == nsub-1 or j == len(ax)-1: ax[j].set_xlabel('Time [ns]')
 		if nsub == len(Plot):
-			for j in xrange(nsub-1):
+			for j in range(nsub-1):
 				plt.setp(ax[j].get_xticklabels(), visible=False)
 			ax[nsub-1].set_xlabel('Time [ns]')
-		elif i%nsub != 0: [plt.setp(ax[j].get_xticklabels(), visible=False) for j in xrange(i-i%nsub,i-1)]
-		else: [plt.setp(ax[j].get_xticklabels(), visible=False) for j in xrange(i-nsub,i-1)]
+		elif i%nsub != 0: [plt.setp(ax[j].get_xticklabels(), visible=False) for j in range(i-i%nsub,i-1)]
+		else: [plt.setp(ax[j].get_xticklabels(), visible=False) for j in range(i-nsub,i-1)]
 		
 		
 		# . display plot
@@ -539,7 +550,7 @@ class Analyzing:
 		writer.write('t [steps];'+';'.join('S'+repr(self.index[spec]) for spec in sorted(self.species) if spec)+'\n')
 		writer.write(';'+';'.join(spec for spec in sorted(self.species))+'\n')
 		
-		for i in xrange(self.ntime):
+		for i in range(self.ntime):
 			line = repr(self.time[i])+';'+';'.join('%d' %(self.species[spec][i]) for spec in sorted(self.species))+'\n'
 			writer.write(line)
 		writer.close()
@@ -562,7 +573,7 @@ class Analyzing:
 		writer.write(';'+';'.join(reac for reac in labels)+'\n')
 		writer.write(';'+';'.join(reac for reac in sorted(self.reaction))+'\n')
 		
-		for i in xrange(self.ntime):
+		for i in range(self.ntime):
 			line = repr(self.time[i])+';'+';'.join(repr(self.reaction[reac][i]) for reac in sorted(self.reaction))+'\n'
 			writer.write(line)
 		writer.close()
@@ -612,7 +623,7 @@ class Analyzing:
 		writer.write(' ID & Reaction & Total Flux \\\\ \\hline\n')
 		for reac in sorted(self.reaction):
 			if '' in reac.split(':')[0].split(',') or '' in reac.split(':')[1].split(','): continue
-			flux = sum(self.reaction[reac][i] for i in xrange(self.ntime))
+			flux = sum(self.reaction[reac][i] for i in range(self.ntime))
 			reactants = ' + '.join('\\ce{'+self.formula[r] + '}' for r in reac.split(':')[0].split(',') if r)
 			products = ' + '.join('\\ce{'+self.formula[p]+'}' for p in reac.split(':')[1].split(',') if p)
 			writer.write(' '+repr(self.index[reac])+' & '+reactants+' $\\to$ '+products+' & '+repr(flux)+' \\\\\n')
@@ -661,7 +672,7 @@ class Analyzing:
 			self.conv.SetInAndOutFormats('smi', 'mdl')
 			self.conv.ReadString(mol, spec)
 			for atom in openbabel.OBMolAtomIter(mol):
-				for j in xrange(atom.ImplicitHydrogenCount()):
+				for j in range(_implicit_h_count(atom)):
 					h = mol.NewAtom()
 					h.SetAtomicNum(1)
 					mol.AddBond(atom.GetIdx(), h.GetIdx(), 1)
@@ -696,7 +707,7 @@ class Analyzing:
 		for r in self.reaction:
 			for reac in r.split(':')[0].split(','):
 				if r not in tmp[reac]:
-					tmp[reac][r] = sum(self.reaction[r][i] for i in xrange(self.ntime))
+					tmp[reac][r] = sum(self.reaction[r][i] for i in range(self.ntime))
 					loss[reac] += tmp[reac][r]
 
 		for r in self.reaction:
@@ -752,8 +763,8 @@ class Analyzing:
 					if atom.GetAtomicNum() in count:
 						count[atom.GetAtomicNum()] += 1
 					else: count[atom.GetAtomicNum()] = 1
-					if 1 in count: count[1] += atom.ImplicitHydrogenCount()
-					else: count[1] = atom.ImplicitHydrogenCount()
+					if 1 in count: count[1] += _implicit_h_count(atom)
+					else: count[1] = _implicit_h_count(atom)
 				else:
 					if 1 in count: count[1] += 1
 					else: count[1] = 1
@@ -769,7 +780,7 @@ class Analyzing:
 		#
 		include = []; exclude = []
 		for reac in sorted(self.reaction):
-			weight = sum([self.reaction[reac][i] for i in xrange(self.ntime)])
+			weight = sum([self.reaction[reac][i] for i in range(self.ntime)])
 			if abs(weight) >= Threshold and (weight == 0 or self.reaction[reac][0]/weight != 1):
 				if any(spec in reac for spec in inrange):
 					reaction = [reac.split(':')[0].split(','), reac.split(':')[1].split(',')]
@@ -897,7 +908,7 @@ if __name__ == "__main__":
 		log.printComment(Text=' Use keyboard to type in work filenames. The <return> button will not cause leaving the input section. Use <strg>+<c> or write "done" to proceed.', onlyBody=False)
 		argv = ['input']; done = False
 		while not done:
-			try: tmp = raw_input('')
+			try: tmp = input('')
 			except: done = True
 			if 'done' in tmp.lower(): done = True
 			else:
@@ -955,11 +966,14 @@ if __name__ == "__main__":
 			try: noReacSpec = argv[i+1].split(','); i += 1
 			except: log.printIssue(Text='-extra: option expected string, got nothing and will use default=[]', Fatal=False)
 		else:
-			try: line = file(argv[i], 'r').readline(); work.append(argv[i])
+			try:
+				with open(argv[i], 'r') as handle:
+					line = handle.readline()
+				work.append(argv[i])
 			except: log.printIssue(Text='attempt to read from '+argv[i]+' failed. Please check whether file is broken or does not exist. File will be ignored ...', Fatal=False); line = ''
 		i += 1
 	if len(work) > len(set(work)):
-		work = set(work)
+		work = list(set(work))
 		log.printIssue(Text='redundant work files found, condensing to unique set of files', Fatal=False)
 	
 	def readWork(Work):
@@ -1026,4 +1040,3 @@ if __name__ == "__main__":
 		anly.writeTexReactions()
 		log.printBody(Text='>>> DONE: mechanism written to '+main+'.gml and reactions written to '+main+'.tex\n', Indent=1)
 	if plot: anly.drawProfile(Plot=plot, Timestep=timestep)
-
