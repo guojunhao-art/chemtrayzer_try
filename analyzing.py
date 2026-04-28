@@ -287,7 +287,7 @@ class Analyzing:
 
 
 		# . define uncertainty estimation function
-		lmbW = lambda lmb, N, k: scipy.special.lambertw(round(-lmb*numpy.exp(-lmb/N)/N, 30), k=k)
+		lmbW = lambda lmb, N, k: scipy.special.lambertw(numpy.round(-lmb*numpy.exp(-lmb/N)/N, 30), k=k)
 		estRateBounds = lambda k, f, N, X: X +scipy.special.gammaincc(N+1, k*f) -scipy.special.gammaincc(N+1, numpy.real(-N*lmbW(lmb=k*f, N=N, k=0)))
 		estNoReacBound = lambda f, X: -numpy.log(1-X)/f
 		#   . unimolecular reactants for additional estimation
