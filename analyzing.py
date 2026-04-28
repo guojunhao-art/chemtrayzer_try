@@ -72,6 +72,14 @@ except ImportError:
 	import openbabel
 import log as Log
 
+
+def _implicit_h_count(atom):
+	if hasattr(atom, 'ImplicitHydrogenCount'):
+		return atom.ImplicitHydrogenCount()
+	if hasattr(atom, 'GetImplicitHCount'):
+		return atom.GetImplicitHCount()
+	return 0
+
 ## @class	Analyzing
 ## @brief	comprises all functions used to represent the simulation
 #		results in a consolidated and simple way
@@ -222,7 +230,7 @@ class Analyzing:
 			self.natom[spec] = 0
 			for atom in openbabel.OBMolAtomIter(mol):
 				if atom.GetAtomicNum() != 1:
-					self.natom[spec] += 1 + atom.ImplicitHydrogenCount()
+					self.natom[spec] += 1 + _implicit_h_count(atom)
 				else: self.natom[spec] += 1
 		self.log.printBody(Text='... stoichiometric formulas generated and atom number computed', Indent=5)
 		
@@ -664,7 +672,7 @@ class Analyzing:
 			self.conv.SetInAndOutFormats('smi', 'mdl')
 			self.conv.ReadString(mol, spec)
 			for atom in openbabel.OBMolAtomIter(mol):
-				for j in range(atom.ImplicitHydrogenCount()):
+				for j in range(_implicit_h_count(atom)):
 					h = mol.NewAtom()
 					h.SetAtomicNum(1)
 					mol.AddBond(atom.GetIdx(), h.GetIdx(), 1)
@@ -755,8 +763,8 @@ class Analyzing:
 					if atom.GetAtomicNum() in count:
 						count[atom.GetAtomicNum()] += 1
 					else: count[atom.GetAtomicNum()] = 1
-					if 1 in count: count[1] += atom.ImplicitHydrogenCount()
-					else: count[1] = atom.ImplicitHydrogenCount()
+					if 1 in count: count[1] += _implicit_h_count(atom)
+					else: count[1] = _implicit_h_count(atom)
 				else:
 					if 1 in count: count[1] += 1
 					else: count[1] = 1
